@@ -1,0 +1,412 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Chatbot Infrastructure with AWS Bedrock, Streamlit, and S3'
+
+Parameters:
+  VPCCidrBlock:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  SubnetCidrBlock:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for the subnet
+
+  ExistingKeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+
+  BucketName:
+    Type: String
+    Description: Name for the S3 bucket (must be globally unique)
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      "HVM64": "ami-0cff7528ff583bf9a"
+    us-east-2:
+      "HVM64": "ami-02d1e544b84bf7502"
+    us-west-1:
+      "HVM64": "ami-0d9858aa3c6322f73"
+    us-west-2:
+      "HVM64": "ami-098e42ae54c764c35"
+    ca-central-1:
+      "HVM64": "ami-00f881f027a6d74a0"
+    eu-west-1:
+      "HVM64": "ami-0d71ea30463e0ff8d"
+    eu-west-2:
+      "HVM64": "ami-0d37e07bd4ff37148"
+    eu-west-3:
+      "HVM64": "ami-0f7cd40eac2214b37"
+    eu-central-1:
+      "HVM64": "ami-0d1ddd83282187d18"
+    eu-north-1:
+      "HVM64": "ami-0567f647e75c7bc05"
+    ap-southeast-1:
+      "HVM64": "ami-02a45d709a415958a"
+    ap-southeast-2:
+      "HVM64": "ami-0b21dcff37a8cd8a4"
+    ap-northeast-1:
+      "HVM64": "ami-09ebacdc178ae23b7"
+    ap-northeast-2:
+      "HVM64": "ami-044057cb1bc4ce527"
+    ap-south-1:
+      "HVM64": "ami-0f1fb91a596abf28d"
+    sa-east-1:
+      "HVM64": "ami-05aa753c043f1dcd3"
+
+Resources:
+  # S3 Bucket
+  ChatbotBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: Chatbot-VPC
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Chatbot-IGW
+
+  # Attach Internet Gateway to VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Subnet
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref SubnetCidrBlock
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: Chatbot-Subnet
+
+  # Route Table
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Chatbot-RouteTable
+
+  # Route to Internet Gateway
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate Route Table with Subnet
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                Resource: '*'
+
+  # DynamoDB Table
+  ChatHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ChatHistory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: conversation_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: conversation_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  # EC2 Instance Role
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                Resource: '*'
+        - PolicyName: APIGatewayAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ChatbotApi}/*
+        
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # EC2 Security Group
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP, SSH, and Streamlit
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          CidrIp: 0.0.0.0/0
+
+  # EC2 Instance
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", HVM64]
+      KeyName: !Ref ExistingKeyPairName
+      SubnetId: !Ref Subnet
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: Chatbot-Streamlit-Server
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y python3-pip
+          pip3 install streamlit requests
+          
+          # Create Streamlit app
+          cat <<EOT > /home/ec2-user/app.py
+          import streamlit as st
+          import requests
+          import json
+
+          st.title("Chatbot with AWS Bedrock")
+
+          api_url = "https://${ChatbotApi}.execute-api.${AWS::Region}.amazonaws.com/prod/chat"
+
+          if "messages" not in st.session_state:
+              st.session_state.messages = []
+
+          for message in st.session_state.messages:
+              with st.chat_message(message["role"]):
+                  st.markdown(message["content"])
+
+          if prompt := st.chat_input("What is your question?"):
+              st.session_state.messages.append({"role": "user", "content": prompt})
+              with st.chat_message("user"):
+                  st.markdown(prompt)
+
+              with st.chat_message("assistant"):
+                  message_placeholder = st.empty()
+                  full_response = ""
+                  
+                  # Send request to API Gateway
+                  response = requests.post(
+                      api_url,
+                      json={"prompt": prompt},
+                      headers={"Content-Type": "application/json"}
+                  )
+                  
+                  if response.status_code == 200:
+                      full_response = response.json().get("response", "Sorry, I couldn't process your request.")
+                  else:
+                      full_response = f"Error: Received status code {response.status_code}"
+                  
+                  message_placeholder.markdown(full_response)
+              
+              st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+          EOT
+
+          # Create a systemd service for Streamlit
+          cat <<EOT > /etc/systemd/system/streamlit.service
+          [Unit]
+          Description=Streamlit App
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/streamlit run /home/ec2-user/app.py --server.port 8501 --server.address 0.0.0.0
+          Restart=always
+          User=ec2-user
+
+          [Install]
+          WantedBy=multi-user.target
+          EOT
+
+          # Start the Streamlit service
+          systemctl daemon-reload
+          systemctl enable streamlit.service
+          systemctl start streamlit.service
+
+  # API Gateway
+  ChatbotApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ChatbotAPI
+      Description: API for Chatbot
+
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ChatbotApi.RootResourceId
+      PathPart: chat
+      RestApiId: !Ref ChatbotApi
+
+  ApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: POST
+      ResourceId: !Ref ApiResource
+      RestApiId: !Ref ChatbotApi
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ChatbotLambda.Arn}/invocations
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ApiMethod
+    Properties:
+      RestApiId: !Ref ChatbotApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref ApiDeployment
+      RestApiId: !Ref ChatbotApi
+      StageName: prod
+
+  # Lambda Function
+  ChatbotLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          # Lambda function code placeholder
+          # Replace this with your actual Lambda function code
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': '{"message": "Lambda function placeholder"}'
+              }
+      Runtime: python3.9
+      Timeout: 300
+      MemorySize: 256
+
+  # Lambda Permission for API Gateway
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ChatbotLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ChatbotApi}/*/POST/chat
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  SubnetId:
+    Description: Subnet ID
+    Value: !Ref Subnet
+
+  ApiEndpoint:
+    Description: API Endpoint URL
+    Value: !Sub https://${ChatbotApi}.execute-api.${AWS::Region}.amazonaws.com/prod/chat
+  
+  EC2PublicIP:
+    Description: Public IP of EC2 instance
+    Value: !GetAtt WebServer.PublicIp
+
+  StreamlitURL:
+    Description: URL to access Streamlit app
+    Value: !Sub http://${WebServer.PublicIp}:8501
+
+  DynamoDBTableName:
+    Description: DynamoDB Table Name
+    Value: !Ref ChatHistoryTable
+
+  S3BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref ChatbotBucket
