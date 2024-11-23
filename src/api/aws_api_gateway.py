@@ -1,5 +1,5 @@
 import requests
-from config import API_ENDPOINT
+from src.config import API_ENDPOINT
 
 def send_message(message):
     """
