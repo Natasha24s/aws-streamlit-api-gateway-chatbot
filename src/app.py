@@ -5,9 +5,8 @@ import streamlit as st
 from src.api.aws_api_gateway import send_message
 from src.utils.helpers import format_bot_message, format_user_message
 
-
 def main():
-    st.title("AWS API Gateway Chatbot")
+    st.title("Product Information Chatbot")
 
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -34,9 +33,6 @@ def main():
                 st.session_state.messages.append(format_bot_message(bot_response))
             else:
                 st.error("Failed to get response from the API.")
-
-            # Clear user input
-            st.session_state.user_input = ""
 
             # Rerun the app to update the chat display
             st.experimental_rerun()
