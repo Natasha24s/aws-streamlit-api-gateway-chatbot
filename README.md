@@ -6,7 +6,7 @@ This project implements a chatbot frontend using Streamlit, which integrates wit
 
 ## Setup
 
-1. Clone this repository
+1. Clone this repository: `https://github.com/Natasha24s/aws-streamlit-api-gateway-chatbot.git`
 2. Install dependencies: `pip install -r requirements.txt`
 3. Run the app: `streamlit run src/app.py`
 
