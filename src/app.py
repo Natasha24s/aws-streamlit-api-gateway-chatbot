@@ -1,41 +1,68 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
-from src.api.aws_api_gateway import send_message
-from src.utils.helpers import format_bot_message, format_user_message
+import requests
+import json
 
+# Function to call the API
+def call_api(query):
+    api_url = "https://jqoatdawvh.execute-api.us-east-2.amazonaws.com/prod/chat"
+    
+    try:
+        response = requests.post(api_url, json={"query": query})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"An error occurred while calling the API: {str(e)}")
+        return None
+    except json.JSONDecodeError as e:
+        st.error(f"Error decoding JSON response: {str(e)}")
+        return None
+
+# Initialize session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+# Streamlit app
 def main():
-    st.title("Product Information Chatbot")
+    st.set_page_config(page_title="Product AI Assistant", page_icon="🧠", layout="wide")
 
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    st.title("🤖 Product AI Assistant")
 
-    # Display chat history
+    # Display chat messages
     for message in st.session_state.messages:
-        st.write(message)
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
     # User input
-    user_input = st.text_input("You:", key="user_input")
+    if prompt := st.chat_input("Ask your question:"):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        # Display user message in chat message container
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    if st.button("Send"):
-        if user_input:
-            # Add user message to chat history
-            st.session_state.messages.append(format_user_message(user_input))
+        # Display assistant response
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = ""
 
-            # Send message to API and get response
-            response = send_message(user_input)
-
-            if response:
-                bot_response = response.get("message", "Sorry, I didn't understand that.")
-                # Add bot response to chat history
-                st.session_state.messages.append(format_bot_message(bot_response))
+            # Call API
+            result = call_api(prompt)
+            if result:
+                full_response = result.get('generated_response', 'No response body available')
+                message_placeholder.markdown(full_response)
             else:
-                st.error("Failed to get response from the API.")
+                message_placeholder.error("Failed to get a valid response from the API.")
 
-            # Rerun the app to update the chat display
-            st.experimental_rerun()
+        # Add assistant response to chat history
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+        # Display additional information
+        with st.expander("See API call details"):
+            st.json({
+                "Query": result.get('query', 'N/A'),
+                "Status Code": result.get('statusCode', 'N/A'),
+                "Source": result.get('s3_location', 'N/A')
+            })
 
 if __name__ == "__main__":
     main()
