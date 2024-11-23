@@ -6,7 +6,9 @@ This project implements a chatbot using Streamlit as the frontend and AWS API Ga
 
 ## Setup
 
-1. Clone this repository
+1. Clone this repository:
+git clone https://github.com/yourusername/aws-streamlit-chatbot.git
+cd aws-streamlit-chatbot
 2. Install dependencies: `pip install -r requirements.txt`
 3. Set up your AWS credentials
 4. Configure the API endpoint in `config.py`
