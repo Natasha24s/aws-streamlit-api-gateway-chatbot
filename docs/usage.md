@@ -2,12 +2,16 @@
 
 1. Open the Streamlit app in your web browser (typically at `http://localhost:8501`).
 
-2. You'll see a chat interface with a text input field at the bottom.
+2. You'll see a chat interface with the title "Product AI Assistant".
 
-3. Type your message into the input field and click the "Send" button or press Enter.
+3. Type your question or query into the input field at the bottom and press Enter or click the send button.
 
-4. Your message will be sent to the AWS API Gateway, and the response will be displayed in the chat.
+4. The AI assistant will process your query and provide a response, which will be displayed in the chat.
 
-5. The chat history is maintained during your session. Refresh the page to start a new session.
+5. You can continue the conversation by asking more questions.
 
-Note: This chatbot does not have authentication, so be cautious about sharing sensitive information.
+6. The chat history is maintained during your session. Refresh the page to start a new session.
+
+7. You can view additional details about each API call by expanding the "See API call details" section below each response.
+
+Note: This chatbot integrates with a specific API endpoint. Ensure you have the necessary permissions to use this API.
