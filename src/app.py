@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import json
-from src.config import API_ENDPOINT
+from config import API_ENDPOINT
 
 # Function to call the API
 def call_api(query):
