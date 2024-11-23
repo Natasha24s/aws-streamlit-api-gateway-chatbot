@@ -5,9 +5,9 @@ Parameters:
   SSHRegionIPsAllowed:
     Description: Provides EC2 SSH access for CIDR range in a region. (Default is us-west-2)
     Type: String
-    Default: **************/29
+    Default: 18.236.231.0/29
     AllowedValues:
-      - **************/29
+      - 18.236.231.0/29
       - 18.206.107.24/29
       - 43.196.20.40/29
       - 43.192.155.8/29
