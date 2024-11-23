@@ -29,12 +29,14 @@ pip install -r requirements.txt
 
     
 
-4. Set up your AWS API Gateway endpoint:
-- Create a `.env` file in the root directory
-- Add your API endpoint URL:
-  ```
-  API_ENDPOINT=https://your-api-gateway-endpoint.amazonaws.com/stage
-  ```
+4. (Optional) If you need to use a different API endpoint, create a `.env` file in the root directory and add:
+
+    
+
+    
+API_ENDPOINT=https://your-api-gateway-endpoint.amazonaws.com/stage
+
+    
 
 5. Run the Streamlit app:
 
@@ -46,8 +48,3 @@ streamlit run src/app.py
     
 
 The app should now be running on `http://localhost:8501`.
-
-    
-
-    
-    
