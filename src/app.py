@@ -1,6 +1,10 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
-from api.aws_api_gateway import send_message
-from utils.helpers import format_bot_message, format_user_message
+from src.api.aws_api_gateway import send_message
+from src.utils.helpers import format_bot_message, format_user_message
+
 
 def main():
     st.title("AWS API Gateway Chatbot")
