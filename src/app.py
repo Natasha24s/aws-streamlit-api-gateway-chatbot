@@ -1,13 +1,13 @@
 import streamlit as st
 import requests
 import json
+from src.config import API_ENDPOINT
 
 # Function to call the API
 def call_api(query):
-    api_url = "https://jqoatdawvh.execute-api.us-east-2.amazonaws.com/prod/chat"
     
     try:
-        response = requests.post(api_url, json={"query": query})
+        response = requests.post(API_ENDPOINT, json={"query": query})
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
