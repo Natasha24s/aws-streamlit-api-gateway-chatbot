@@ -1,6 +1,7 @@
 import json
 import os
 import boto3
+import time
 from typing import Any, List, Mapping, Optional
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.chains import LLMChain
@@ -17,6 +18,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 bedrock_runtime = boto3.client("bedrock-runtime")
+dynamodb = boto3.client('dynamodb')
 
 class BedrockChatModel(BaseChatModel):
     model_id: str = Field(..., description="The Bedrock model ID")
@@ -103,6 +105,7 @@ def lambda_handler(event, context):
     try:
         # Get user input from the event
         user_input = event.get('query')
+        session_id = event.get('sessionId', 'default')
 
         logger.info(f"User input: {user_input}")
 
@@ -113,29 +116,34 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'No query provided in the event'})
             }
 
-        # Initialize AmazonKnowledgeBasesRetriever
+        # Initialize AmazonKnowledgeBasesRetriever with return_source_documents=True
         retriever = AmazonKnowledgeBasesRetriever(
             knowledge_base_id=knowledge_base_id,
-            retrieval_config={"vectorSearchConfiguration": {"numberOfResults": 3}},
-            region_name="us-east-2"  # Adjust the region if necessary
+            retrieval_config={"vectorSearchConfiguration": {"numberOfResults": 4}},
+            region_name="us-east-2",  # Adjust the region if necessary
+            return_source_documents=True
         )
 
         # Retrieve relevant documents
         docs = retriever.get_relevant_documents(user_input)
-        context = "\n".join([doc.page_content for doc in docs])
+        context = "\n".join([f"Source {i+1}: {doc.page_content}" for i, doc in enumerate(docs)])
 
         # Create a custom prompt template
         prompt_template = """
-        You are an assistant for question-answering tasks for product information. 
-        Be concise in your responses. Always be polite and professional.
-        Never provide information about competitors' products.
-        Do not discuss availability. If asked, say this information changes frequently and encourage users to visit our website or contact customer service for the most up-to-date information.
-        Always respect user privacy and do not ask for or store personal information.
+        You are an assistant for question-answering tasks about product information. 
+        Use the following context to answer the question. Your response should be structured as a summary of the TV products mentioned in the search results, with bullet points for each product and its key features. Include the source number for each product.
 
-        Use the following context to answer the question:
+        Context:
         {context}
 
         Question: {question}
+
+        Generate a response in the following format:
+        The search results contain information about several TV products, including:
+        - [Brand] [Size] [Color] [Product Type] ([Model Number]) with [key feature 1], [key feature 2], and [key feature 3]. 
+        - [Next product...]
+        Do not include any source references in the bullet points.
+
         Answer:"""
 
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
@@ -144,15 +152,15 @@ def lambda_handler(event, context):
         chain = LLMChain(llm=llm, prompt=prompt)
 
         # Generate response
-        response = chain.run(context=context, question=user_input)
-        
-        logger.info(f"Final AI response: {response}")
+        answer = chain.run(context=context, question=user_input)
+      
+        logger.info(f"AI response: {answer}")
+
 
         return {
             'statusCode': 200,
-            'body': json.dumps({
-                'response': response
-            })
+            'query': user_input,
+            'generated_response': answer
         }
 
     except Exception as e:
