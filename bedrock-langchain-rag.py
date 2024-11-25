@@ -12,6 +12,9 @@ from langchain_community.retrievers import AmazonKnowledgeBasesRetriever
 from langchain.chat_models.base import BaseChatModel
 from pydantic import Field
 from langchain_community.chat_message_histories import DynamoDBChatMessageHistory
+import uuid
+
+session_id = str(uuid.uuid4())
 
 # Set up logging
 logger = logging.getLogger()
@@ -106,7 +109,6 @@ def lambda_handler(event, context):
     try:
         # Get user input from the event
         user_input = event.get('query')
-        session_id = event.get('sessionId', 'default')
 
         logger.info(f"User input: {user_input}")
         logger.info(f"Session ID: {session_id}")
@@ -193,10 +195,8 @@ def lambda_handler(event, context):
 
         return {
             'statusCode': 200,
-            'body': json.dumps({
-                'query': user_input,
-                'generated_response': answer
-            })
+            'query': user_input,
+            'generated_response': answer         
         }
 
     except Exception as e:
