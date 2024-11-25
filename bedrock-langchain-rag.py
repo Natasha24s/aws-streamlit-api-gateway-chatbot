@@ -11,6 +11,7 @@ from langchain.schema import AIMessage, BaseMessage, ChatResult, HumanMessage, S
 from langchain_community.retrievers import AmazonKnowledgeBasesRetriever
 from langchain.chat_models.base import BaseChatModel
 from pydantic import Field
+from langchain_community.chat_message_histories import DynamoDBChatMessageHistory
 
 # Set up logging
 logger = logging.getLogger()
@@ -108,6 +109,7 @@ def lambda_handler(event, context):
         session_id = event.get('sessionId', 'default')
 
         logger.info(f"User input: {user_input}")
+        logger.info(f"Session ID: {session_id}")
 
         if not user_input:
             logger.error("No query provided in the event")
@@ -115,6 +117,24 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps({'error': 'No query provided in the event'})
             }
+
+        # Initialize DynamoDBChatMessageHistory
+        logger.info(f"Initializing DynamoDBChatMessageHistory with session_id: {session_id}")
+        message_history = DynamoDBChatMessageHistory(
+            table_name="ConversationHistory",
+            session_id=session_id,
+        )
+        logger.info("DynamoDBChatMessageHistory initialized successfully")
+
+        # Retrieve chat history
+        logger.info("Retrieving chat history")
+        chat_history = message_history.messages
+        logger.info(f"Retrieved {len(chat_history)} messages from history")
+
+        # Add the new user message to the history
+        logger.info(f"Adding user message to history: {user_input}")
+        message_history.add_user_message(user_input)
+        logger.info("User message added successfully")
 
         # Initialize AmazonKnowledgeBasesRetriever with return_source_documents=True
         retriever = AmazonKnowledgeBasesRetriever(
@@ -125,16 +145,21 @@ def lambda_handler(event, context):
         )
 
         # Retrieve relevant documents
+        logger.info("Retrieving relevant documents")
         docs = retriever.get_relevant_documents(user_input)
         context = "\n".join([f"Source {i+1}: {doc.page_content}" for i, doc in enumerate(docs)])
+        logger.info(f"Retrieved {len(docs)} relevant documents")
 
         # Create a custom prompt template
         prompt_template = """
         You are an assistant for question-answering tasks about product information. 
-        Use the following context to answer the question. Your response should be structured as a summary of the TV products mentioned in the search results, with bullet points for each product and its key features. Include the source number for each product.
+        Use the following context and chat history to answer the question. Your response should be structured as a summary of the TV products mentioned in the search results, with bullet points for each product and its key features. Include the source number for each product.
 
         Context:
         {context}
+
+        Chat History:
+        {chat_history}
 
         Question: {question}
 
@@ -146,21 +171,32 @@ def lambda_handler(event, context):
 
         Answer:"""
 
-        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
 
         # Create LLMChain
         chain = LLMChain(llm=llm, prompt=prompt)
 
         # Generate response
-        answer = chain.run(context=context, question=user_input)
+        logger.info("Generating response")
+        answer = chain.run(
+            context=context, 
+            chat_history="\n".join([f"{m.type}: {m.content}" for m in chat_history]), 
+            question=user_input
+        )
       
         logger.info(f"AI response: {answer}")
 
+        # Add the AI's response to the chat history
+        logger.info("Adding AI response to chat history")
+        message_history.add_ai_message(answer)
+        logger.info("AI response added successfully")
 
         return {
             'statusCode': 200,
-            'query': user_input,
-            'generated_response': answer
+            'body': json.dumps({
+                'query': user_input,
+                'generated_response': answer
+            })
         }
 
     except Exception as e:
